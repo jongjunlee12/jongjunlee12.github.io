@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>글램핑 인터랙티브 대시보드</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet.js CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet.js Script -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Nanum Square AC Font -->
+    <link href="https://hangeul.pstatic.net/hangeul_static/css/nanum-square-ac.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'NanumSquareAc', sans-serif;
+        }
+        /* Custom Leaflet DivIcon for markers */
+        .glamping-marker {
+            text-align: center;
+        }
+        .glamping-marker .icon {
+            width: 16px;
+            height: 16px;
+            background-color: rgba(59, 130, 246, 0.7);
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            margin: 0 auto; /* Center the icon */
+        }
+        .glamping-marker .label {
+            white-space: nowrap;
+            padding: 2px 4px;
+            background-color: rgba(255, 255, 255, 0.85);
+            border-radius: 4px;
+            font-size: 11px; /* Slightly smaller font */
+            font-weight: bold;
+            color: #333;
+            text-shadow: 0 0 2px white;
+            margin-top: 2px;
+        }
+        /* Word Cloud Styling */
+        #word-cloud {
+            position: relative; /* Changed for absolute positioning of children */
+            overflow: hidden;
+        }
+        .word-cloud-item {
+            position: absolute; /* Positioned via JS */
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        .word-cloud-item:hover {
+            transform: scale(1.1) !important; /* Use important to override JS transform */
+            color: #007bff;
+            z-index: 10;
+        }
+        .word-cloud-item.active {
+            color: #007bff;
+            font-weight: 800; /* ac-extra-bold */
+            transform: scale(1.15) !important; /* Use important to override JS transform */
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4">
+        <header class="mb-4">
+            <h1 class="text-3xl font-bold text-gray-900">글램핑 인터랙티브 대시보드</h1>
+            <p class="text-gray-600">필터와 워드 클라우드를 사용하여 원하는 글램핑장을 찾아보세요.</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[80vh]">
+            <!-- Map Section -->
+            <div class="lg:col-span-2 bg-white rounded-lg shadow-md overflow-hidden h-full">
+                <div id="map" class="w-full h-full"></div>
+            </div>
+
+            <!-- Filters and Word Cloud Section -->
+            <div class="flex flex-col gap-6 h-full">
+                <!-- Filters -->
+                <div class="bg-white p-4 rounded-lg shadow-md">
+                    <h2 class="text-xl font-bold mb-4 border-b pb-2">필터</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="name-filter" class="block text-sm font-medium text-gray-700">글램핑 이름</label>
+                            <input type="text" id="name-filter" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="이름으로 검색...">
+                        </div>
+                        <div>
+                            <label for="region-filter" class="block text-sm font-medium text-gray-700">지역</label>
+                            <select id="region-filter" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                                <option value="">전체 지역</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="keyword-filter" class="block text-sm font-medium text-gray-700">키워드</label>
+                            <select id="keyword-filter" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                                <option value="">전체 키워드</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Word Cloud -->
+                <div class="bg-white p-4 rounded-lg shadow-md flex-grow flex flex-col">
+                    <h2 class="text-xl font-bold mb-2 border-b pb-2">후기 키워드 분석</h2>
+                    <div id="word-cloud" class="flex-grow min-h-0">
+                        <!-- Keywords will be dynamically inserted here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA PREPARATION ---
+        const glampingData = [
+            { name: "가평 어반힐스 글램핑", address: "경기 가평군 북면 백둔로 468", lat: 37.8322, lng: 127.5103, keywords: ["아이", "수영장", "사장님", "친절"] },
+            { name: "가평 노마드글램핑", address: "경기 가평군 상면 청군로 429", lat: 37.79, lng: 127.49, keywords: ["객실", "깨끗", "바베큐", "수영장", "온수", "불멍", "찜질방"] },
+            { name: "여주 썬밸리 호텔&워터파크", address: "경기 여주시 강변유원지길 45", lat: 37.3015, lng: 127.601, keywords: ["호텔", "룸컨디션", "워터파크", "가족"] },
+            { name: "양평 포레스트 라이브 펜션", address: "경기 양평군 용문면 용문산로 23", lat: 37.52, lng: 127.55, keywords: ["친절", "청결", "픽업", "바베큐", "감성"] },
+            { name: "인천 강화도 어반티지 글램핑", address: "인천 강화군 내가면 강화서로 233", lat: 37.64, lng: 126.45, keywords: ["시설", "친절", "깨끗", "감성", "불멍", "고양이"] },
+            { name: "서울 북한산 럭셔리 카라반", address: "서울 은평구 진관동 278-1", lat: 37.63, lng: 126.94, keywords: ["친절", "바베큐", "서울", "카라반"] },
+            { name: "포천 아쿠아마린글램핑", address: "경기 포천시 이동면 화동로 2220-13", lat: 38.05, lng: 127.3, keywords: ["객실", "깨끗", "수영장", "계곡"] },
+            { name: "포천 라벤트리 글램핑", address: "경기 포천시 영북면 산정리 520-2", lat: 38, lng: 127.28, keywords: ["카라반", "깨끗", "바베큐", "뷰", "계곡"] },
+            { name: "가평 숲속의정원", address: "경기 가평군 북면 가화로 2634-58", lat: 37.82, lng: 127.55, keywords: ["사장님", "친절", "바베큐", "수영장", "감성", "깨끗"] },
+            { name: "포천 더세븐글램핑카라반", address: "경기 포천시 이동면 화동로 2399", lat: 38.02, lng: 127.32, keywords: ["깨끗", "이불", "카라반", "수영장", "계곡"] },
+            { name: "파주 동화힐링캠프", address: "경기 파주시 파평면 파평산로369번길 56-19", lat: 37.85, lng: 126.8, keywords: ["방음", "매너타임", "가족", "깨끗"] },
+            { name: "가평 JH웨스턴글램핑", address: "경기 가평군 가평읍 북한강변로 346", lat: 37.75, lng: 127.48, keywords: ["전망", "불멍", "제트스파", "깨끗", "풀빌라"] },
+            { name: "남양주 더드림핑", address: "경기 남양주시 화도읍 북한강로 1630-18", lat: 37.63, lng: 127.3, keywords: ["뷰", "카약", "바베큐", "가족", "힐링", "감성"] },
+            { name: "포천 더설렘 글램핑 앤 카라반", address: "경기 포천시 신북면 간자동길 132-35", lat: 37.95, lng: 127.25, keywords: ["사장님", "친절", "바베큐", "카라반", "불멍", "강아지"] },
+            { name: "대부도 글램포레스트", address: "경기 안산시 단원구 대부황금로 1488", lat: 37.25, lng: 126.6, keywords: ["깨끗", "추움", "화장실", "바베큐"] },
+            { name: "가평 핀란드캠핑성", address: "경기 가평군 북면 논남기길 54", lat: 37.88, lng: 127.53, keywords: ["친절", "온수수영장", "가족", "고양이"] },
+            { name: "포천 캠프오후4시", address: "경기 포천시 군내면 청군로 2864", lat: 37.98, lng: 127.22, keywords: ["감성", "카라반", "불멍", "별"] },
+            { name: "화성 글램비 글램핑", address: "경기 화성시 서신면 해안길 236", lat: 37.19, lng: 126.82, keywords: ["주차장", "볼거리", "놀거리"] },
+        ];
+
+        // --- GLOBAL VARIABLES ---
+        let map;
+        let markerLayer;
+        const nameFilter = document.getElementById('name-filter');
+        const regionFilter = document.getElementById('region-filter');
+        const keywordFilter = document.getElementById('keyword-filter');
+        const wordCloudContainer = document.getElementById('word-cloud');
+
+        // --- MAP INITIALIZATION ---
+        function initMap() {
+            map = L.map('map').setView([37.6, 127.2], 9);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 20
+            }).addTo(map);
+            markerLayer = L.layerGroup().addTo(map);
+        }
+
+        // --- MARKER CREATION ---
+        function createMarkers(data) {
+            markerLayer.clearLayers();
+            data.forEach(site => {
+                const divIcon = L.divIcon({
+                    className: 'glamping-marker',
+                    html: `<div class="icon"></div><div class="label">${site.name}</div>`,
+                    iconSize: [120, 40], // Adjust size to fit content
+                    iconAnchor: [60, 20] // Center the anchor
+                });
+                const marker = L.marker([site.lat, site.lng], { icon: divIcon });
+                marker.bindPopup(`<b>${site.name}</b><br>${site.address}`);
+                markerLayer.addLayer(marker);
+            });
+        }
+
+        // --- FILTER & WORD CLOUD POPULATION ---
+        function populateFiltersAndCloud() {
+            const regions = new Set();
+            const allKeywords = new Map();
+
+            glampingData.forEach(site => {
+                const region = site.address.split(' ')[0] + ' ' + site.address.split(' ')[1];
+                regions.add(region);
+                site.keywords.forEach(kw => {
+                    allKeywords.set(kw, (allKeywords.get(kw) || 0) + 1);
+                });
+            });
+
+            // Populate region filter
+            // Clear existing options before repopulating
+            while (regionFilter.options.length > 1) {
+                regionFilter.remove(1);
+            }
+            regions.forEach(region => {
+                const option = document.createElement('option');
+                option.value = region;
+                option.textContent = region;
+                regionFilter.appendChild(option);
+            });
+            
+            // Populate keyword filter
+            const sortedKeywords = [...allKeywords.entries()].sort((a, b) => b[1] - a[1]);
+            while (keywordFilter.options.length > 1) {
+                keywordFilter.remove(1);
+            }
+            sortedKeywords.forEach(([keyword, count]) => {
+                const option = document.createElement('option');
+                option.value = keyword;
+                option.textContent = `${keyword} (${count})`;
+                keywordFilter.appendChild(option);
+            });
+            
+            // --- UPDATED: Circular Word Cloud Layout ---
+            wordCloudContainer.innerHTML = ''; // Clear previous content
+            const containerWidth = wordCloudContainer.offsetWidth;
+            const containerHeight = wordCloudContainer.offsetHeight;
+            const centerX = containerWidth / 2;
+            const centerY = containerHeight / 2;
+            
+            // This factor scales the spiral. Adjust it to make the cloud tighter or looser.
+            const radiusScale = Math.min(containerWidth, containerHeight) / 2.8;
+
+            sortedKeywords.forEach(([keyword, count], index) => {
+                const wordElement = document.createElement('span');
+                wordElement.textContent = keyword;
+                wordElement.dataset.keyword = keyword;
+                wordElement.className = 'word-cloud-item';
+                
+                // Adjust font size based on frequency
+                const fontSize = 10 + Math.sqrt(count) * 2.5; // Reduced font size
+                wordElement.style.fontSize = `${Math.min(fontSize, 40)}px`; // Reduced max font size
+                wordElement.style.fontWeight = count > 5 ? '800' : (count > 2 ? '600' : '400');
+                wordElement.style.opacity = 0.6 + count * 0.1;
+                
+                wordCloudContainer.appendChild(wordElement);
+                
+                // Position calculation using a spiral formula
+                let x, y;
+                const wordWidth = wordElement.offsetWidth;
+                const wordHeight = wordElement.offsetHeight;
+
+                if (index === 0) { // Center the most frequent word
+                    x = centerX - wordWidth / 2;
+                    y = centerY - wordHeight / 2;
+                } else { // Arrange others in a spiral (Phyllotaxis pattern)
+                    const angle = index * 2.39998; // Use golden angle for natural distribution
+                    const radius = radiusScale * Math.sqrt(index) * 0.18; // Increased radius factor
+                    x = centerX + radius * Math.cos(angle) - wordWidth / 2;
+                    y = centerY + radius * Math.sin(angle) - wordHeight / 2;
+                }
+
+                wordElement.style.left = `${x}px`;
+                wordElement.style.top = `${y}px`;
+            });
+        }
+
+        // --- FILTERING LOGIC ---
+        function applyFilters() {
+            const nameQuery = nameFilter.value.toLowerCase();
+            const regionQuery = regionFilter.value;
+            const keywordQuery = keywordFilter.value;
+
+            const filteredData = glampingData.filter(site => {
+                const nameMatch = site.name.toLowerCase().includes(nameQuery);
+                const regionMatch = !regionQuery || site.address.startsWith(regionQuery);
+                const keywordMatch = !keywordQuery || site.keywords.includes(keywordQuery);
+                return nameMatch && regionMatch && keywordMatch;
+            });
+
+            createMarkers(filteredData);
+            
+            // Update active state in word cloud
+            document.querySelectorAll('.word-cloud-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.keyword === keywordQuery);
+            });
+        }
+
+        // --- EVENT LISTENERS ---
+        function setupEventListeners() {
+            nameFilter.addEventListener('input', applyFilters);
+            regionFilter.addEventListener('change', applyFilters);
+            keywordFilter.addEventListener('change', applyFilters);
+            
+            wordCloudContainer.addEventListener('click', (e) => {
+                if (e.target.classList.contains('word-cloud-item')) {
+                    const clickedKeyword = e.target.dataset.keyword;
+                    if (keywordFilter.value === clickedKeyword) {
+                        keywordFilter.value = "";
+                    } else {
+                        keywordFilter.value = clickedKeyword;
+                    }
+                    keywordFilter.dispatchEvent(new Event('change'));
+                }
+            });
+
+            // Re-calculate word cloud on window resize
+            window.addEventListener('resize', populateFiltersAndCloud);
+        }
+
+        // --- MAIN EXECUTION ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            populateFiltersAndCloud();
+            createMarkers(glampingData);
+            setupEventListeners();
+        });
+    </script>
+</body>
+</html>
