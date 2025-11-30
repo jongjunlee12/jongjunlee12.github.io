@@ -41,6 +41,15 @@ RADIUS_BY_TIME = {
 }
 
 
+# 세션 상태 초기화
+if 'isochrone_data' not in st.session_state:
+    st.session_state.isochrone_data = None
+if 'map_center' not in st.session_state:
+    st.session_state.map_center = [37.5665, 126.9780]
+if 'last_params' not in st.session_state:
+    st.session_state.last_params = None
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_graph(lat: float, lon: float, dist: int, network_type: str):
     """도로 네트워크 다운로드 (캐싱 적용)"""
@@ -53,6 +62,7 @@ def get_graph(lat: float, lon: float, dist: int, network_type: str):
 
 def add_travel_time(G, mode: str):
     """그래프 엣지에 이동 시간 추가"""
+    G = G.copy()
     if mode == "walk":
         # 도보: 4.5 km/h = 1.25 m/s
         for u, v, data in G.edges(data=True):
@@ -192,7 +202,7 @@ def main():
         st.caption("• OpenStreetMap 데이터 사용")
         st.caption("• 첫 실행 시 10~30초 소요")
 
-    # 메인 영역: 지도 표시
+    # 실행 버튼 클릭 시 계산
     if run_button:
         mode_config = TRANSPORT_MODES[transport]
         network_type = mode_config["network_type"]
@@ -213,22 +223,65 @@ def main():
 
             if isochrone is None:
                 st.warning("⚠️ 도달 가능한 영역이 너무 작습니다. 시간을 늘려보세요.")
-                m = create_map(lat, lon)
+                st.session_state.isochrone_data = None
             else:
                 st.success(f"✅ {transport} {trip_time}분 아이소크론 생성 완료!")
-                m = create_map(lat, lon, isochrone)
-
-            # 지도 표시
-            st_folium(m, width=None, height=600, use_container_width=True)
+                # 세션 상태에 결과 저장
+                st.session_state.isochrone_data = isochrone.__geo_interface__
+                st.session_state.map_center = [lat, lon]
+                st.session_state.last_params = {
+                    'lat': lat,
+                    'lon': lon,
+                    'transport': transport,
+                    'trip_time': trip_time
+                }
 
         except Exception as e:
             st.error(f"❌ 오류가 발생했습니다: {str(e)}")
             st.info("💡 인터넷 연결을 확인하거나, 다른 좌표를 시도해보세요.")
+            st.session_state.isochrone_data = None
+
+    # 메인 영역: 지도 표시
+    # 세션에 저장된 아이소크론이 있으면 표시
+    if st.session_state.isochrone_data is not None:
+        center = st.session_state.map_center
+
+        m = folium.Map(
+            location=center,
+            tiles="CartoDB Positron",
+            zoom_start=14
+        )
+
+        # 중심점 마커
+        folium.Marker(
+            location=center,
+            popup="출발점",
+            icon=folium.Icon(color='red', icon='info-sign')
+        ).add_to(m)
+
+        # 아이소크론 폴리곤
+        folium.GeoJson(
+            st.session_state.isochrone_data,
+            style_function=lambda x: {
+                'fillColor': '#3388ff',
+                'color': '#3388ff',
+                'weight': 2,
+                'fillOpacity': 0.3
+            },
+            tooltip="도달 가능 영역"
+        ).add_to(m)
+
+        # 마지막 파라미터 정보 표시
+        if st.session_state.last_params:
+            params = st.session_state.last_params
+            st.info(f"📍 {params['lat']:.4f}, {params['lon']:.4f} | {params['transport']} | {params['trip_time']}분")
+
+        st_folium(m, width=None, height=600, use_container_width=True, returned_objects=[])
     else:
         # 초기 상태: 빈 지도 표시
         st.info("👈 사이드바에서 좌표와 조건을 설정한 후 '아이소크론 생성' 버튼을 클릭하세요.")
         m = create_map(lat, lon)
-        st_folium(m, width=None, height=600, use_container_width=True)
+        st_folium(m, width=None, height=600, use_container_width=True, returned_objects=[])
 
 
 if __name__ == "__main__":
