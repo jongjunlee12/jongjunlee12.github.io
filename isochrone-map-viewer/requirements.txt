@@ -16,3 +16,6 @@ streamlit-folium==0.25.3
 # Numerical Computing (OSMnx dependencies)
 numpy>=1.26.0
 pandas>=2.2.0
+
+# HTTP Requests (Naver API)
+requests>=2.31.0
