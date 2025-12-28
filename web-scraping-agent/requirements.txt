@@ -1,0 +1,8 @@
+# Web Scraping Agent Dependencies
+# Python 3.10+ required
+
+# Browser automation
+playwright>=1.40.0
+
+# Note: After installing, run the following command to install browser binaries:
+# playwright install chromium
